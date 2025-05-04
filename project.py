@@ -1,0 +1,461 @@
+"""
+Name:       Caio, Sneha, Isabella, and Nathalia
+CS230:      Section 7
+Data:       McDonald's Store Reviews
+URL:
+
+Description:
+This Streamlit app analyzes McDonald’s customer reviews through interactive visualizations and maps.
+It allows users to explore star rating distributions, view location performance over time, and filter
+reviews by rating or keywords. The app features bar and pie charts, weekday and monthly trends,
+and dynamic maps displaying store locations and average ratings. It provides valuable insights
+into customer sentiment and McDonald's performance using Python libraries such as
+Pandas, Seaborn, Matplotlib, and Folium.
+
+Assistance from ChatGPT was used to help design and troubleshoot sections of this program.
+These contributions are labeled as comments throughout the program and also referenced in the AI Report.
+
+"""
+
+# Importing the necessary libraries
+import streamlit as st
+import pandas as pd
+import matplotlib.pyplot as plt
+import datetime
+import seaborn as sns
+import re
+import folium
+import branca.colormap as cm
+from streamlit_folium import folium_static
+
+# Introduction Navigation Menu
+# [ST4]
+st.sidebar.title("Navigation Page")
+page = st.sidebar.radio("Go to: ", ["Introduction", "Analytics"] )
+
+# [ST4]
+# CHATGPT Prompt 1: Create an introduction page in the navigation pane with a brief introduction space about McDonald's. Include a space for two pictures
+if page == "Introduction":
+    st.title("🍔 Welcome to the McDonald's Reviews App!")
+    st.header("About McDonald's")
+    st.write("""
+McDonald's is one of the world's largest and most famous fast-food chains.  
+It was founded in 1940 by Richard and Maurice McDonald in San Bernardino, California.  
+Today, McDonald's serves millions of customers every day across more than 100 countries,  
+offering a variety of menu items from burgers and fries to salads and coffee.
+
+The company is known for its iconic golden arches, affordable pricing, quick service,  
+and menu innovations that adapt to local tastes worldwide.
+""")
+    st.header("A Brief History")
+    st.write("""
+- **1940**: McDonald's was founded as a barbecue restaurant.
+- **1948**: The McDonald brothers introduced the 'Speedee Service System'.
+- **1955**: Ray Kroc joined McDonald's and opened the first franchised restaurant.
+- **1961**: Kroc purchased McDonald's and expanded it globally.
+- **Present**: McDonald's operates over 39,000 restaurants worldwide.
+""")
+# [ST4]
+    st.image("mcdonalds_image.jpg", caption="Golden Arches", use_container_width=True)
+    st.image("mcdonalds_image2.jpg", caption="Restaurant Exterior", use_container_width=True)
+
+# --------------------------------------------------------------------------------------------------------
+# Map of All Locations
+# CHATGPT Prompt 2: Can you write Streamlit code that maps all store locations based on latitude and longitude from the data set
+# [MAP]
+    try:
+        df_map = pd.read_csv("McDonald_s_Reviews(in).csv", encoding="latin1")
+    except Exception as e:
+        st.warning(f"Could not load CSV for map: {e}")
+        df_map = pd.DataFrame()
+
+    st.header("Map of All Review Locations")
+    lat_cols = [c for c in df_map.columns if 'lat' in c.lower()]
+    lon_cols = [c for c in df_map.columns if 'lon' in c.lower()]
+    if lat_cols and lon_cols:
+        coords = df_map[[lat_cols[0], lon_cols[0]]].dropna()
+        coords = coords.rename(columns={lat_cols[0]:'latitude', lon_cols[0]:'longitude'})
+        if not coords.empty:
+            st.map(coords)
+        else:
+            st.warning("No valid latitude/longitude data for map.")
+    else:
+        st.warning("Data does not include latitude/longitude columns for map.")
+    st.success("Use the sidebar to switch to the Analytics Section in order to explore the review data!")
+
+# --------------------------------------------------------------------------------------------------------
+# Analytics Navigation Menu
+# [ST4] and [DA1]
+elif page == "Analytics":
+    # Load Data and Normalize Columns
+    st.title("Welcome to McDonald's Reviews Analysis")
+
+# --------------------------------------------------------------------------------------------------------
+# Descriptions of parts dictionary
+# [PY4]
+# CHATGPT Prompt 3: Create a dictionary that maps user-entered commands to feature descriptions, reflecting the main sections of the code.
+    command_dict = {
+        "bar chart": "Displays a color-coded bar chart of the number of reviews per star rating (1–2 red, 3 yellow, 4–5 green).",
+        "pie chart": "Shows the percentage distribution of each star rating using a red→yellow→green color gradient.",
+        "weekday": "Displays a bar chart showing average rating by day of the week with color-coded bars based on value.",
+        "top stores": "Displays a table of the top 5 highest-rated McDonald's store locations based on average rating.",
+        "filter": "Lets you filter reviews by rating range and/or a keyword using a slider and search input.",
+        "filtered map": "Maps filtered McDonald's locations as color-coded Folium circle markers by average rating.",
+        "trend": "Plots the change in average rating over time, based on relative timestamps (e.g., '2 months ago').",
+        "zip code map": "Maps store locations by selected ZIP code (state label), color-coded by average rating.",
+        "yearly": "Displays a histogram showing the number of reviews per year with labeled counts.",
+        "help": "Lists all available commands you can try."
+    }
+
+    st.subheader("🔎 Curious what each section does? Type a command below to find out.")
+    user_command = st.text_input(
+        "Enter a command to learn about a feature (e.g., 'bar chart', 'pie chart', 'weekday', 'top stores', 'filter', 'filtered map', 'trend', 'zip code map', 'yearly', 'help'):"
+    ).strip().lower()
+
+    if user_command:
+        if user_command in command_dict and user_command != "help":
+            st.info(f"📌 {command_dict[user_command]}")
+        elif user_command == "help":
+            st.markdown("### 🧭 Available Commands")
+            for cmd, desc in command_dict.items():
+                st.markdown(f"**`{cmd}`**: {desc}")
+        else:
+            st.error("❌ This section is not part of the program. Type 'help' for help.")
+    df = pd.read_csv("McDonald_s_Reviews(in).csv", encoding="latin1")
+    df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
+# ----------------------------------------------------------------------------------------------------
+# Rating Counts Bar Chart
+# CHATGPT Prompt 4: Using Matplotlib create a bar chart that groups all the ratings by the star ratings. Color code the bars (1-2 red, 3 yellow, 4-5 green)
+# [CHART1] [VIZ1]
+    st.header("Counts for each Rating")
+    df['rating'] = df['rating'].str.extract(r'(\d+)').astype(int)
+# [DA2]
+    rating_counts = df['rating'].value_counts().sort_index()
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+# [ST4]
+    bar_colors = ['red' if r in [1, 2] else 'yellow' if r == 3 else 'green' for r in rating_counts.index]
+    bars = ax.bar(rating_counts.index, rating_counts.values, color=bar_colors)
+    ax.set_ylim(0, 11000)
+    for bar in bars:
+        ax.annotate(f'{int(bar.get_height())}',
+                    xy=(bar.get_x() + bar.get_width()/2, bar.get_height()),
+                    xytext=(0, 3), textcoords='offset points', ha='center')
+    ax.set_xlabel('Star Rating')
+    ax.set_ylabel('Number of Reviews')
+    ax.set_title('Number of Reviews per Star Rating')
+    ax.set_xticks([1,2,3,4,5])
+    ax.grid(axis='y', linestyle='--', alpha=0.7)
+    st.pyplot(fig)
+# ----------------------------------------------------------------------------------------------------
+# Pie Chart of Rating Distribution
+# CHATGPT Prompt 5: Using Matplotlib I want to display a pie chart that: Shows the percentage distribution of each star rating, and uses a red→yellow→green gradient palette for ratings 1 through 5
+# [CHART2]  [VIZ2]
+    st.header("Rating Distribution Pie Chart")
+
+# count each star
+    rating_counts = df['rating'].value_counts().sort_index()
+
+# red→yellow→green gradient for 1–5 stars
+    colors = sns.color_palette("RdYlGn", 5)
+
+    plt.figure(figsize=(6, 6))
+    plt.pie(
+        rating_counts,
+        labels=rating_counts.index,
+        autopct='%1.1f%%',
+        colors=colors,
+        startangle=90
+    )
+    plt.title("Distribution of Star Ratings")
+    plt.axis('equal')  # keep it circular
+    st.pyplot(plt.gcf())
+
+# ----------------------------------------------------------------------------------------------------
+# Weekday average ratings histogram
+# CHATGPT Prompt 6: Create a seaborn plot that gives me a histogram that shows average rating throughout weekdays and color code them according to the rating value (lowest 2 = red, middle 3 = yellow, highest 2  = green)
+# [SEA2] [VIZ3]
+    st.header("Average Rating by Day of the Week")
+# Ensure parsed_date exists
+    def parse_review_time(t):
+        m = re.match(r"(\d+)\s(\w+)\sago", str(t))
+        if not m: return None
+        n, u = int(m.group(1)), m.group(2)
+        now = datetime.datetime.now()
+        if 'day' in u: return now - datetime.timedelta(days=n)
+        if 'month' in u: return now - datetime.timedelta(days=n * 30)
+        if 'year' in u: return now - datetime.timedelta(days=n * 365)
+
+
+    if 'parsed_date' not in df.columns:
+        df['parsed_date'] = df['review_time'].apply(parse_review_time)
+    df.dropna(subset=['parsed_date'], inplace=True)
+
+# Create weekday column
+# [DA7]
+    df['weekday'] = df['parsed_date'].dt.day_name()
+
+# Define weekday order
+    weekday_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+# Compute average rating by weekday (ordered)
+    weekday_avg = df.groupby('weekday')['rating'].mean().reindex(weekday_order)
+
+# Assign color mapping based on sorted average values
+    sorted_days = weekday_avg.sort_values()
+    color_map = {}
+    for i, day in enumerate(sorted_days.index):
+        if i < 2:
+            color_map[day] = 'red'
+        elif i < 5:
+            color_map[day] = 'gold'
+        else:
+            color_map[day] = 'green'
+
+# Convert to DataFrame for Seaborn
+    weekday_avg_df = weekday_avg.reset_index()
+    weekday_avg_df.columns = ['weekday', 'average_rating']
+
+# Plot with Seaborn and color list
+    fig, ax = plt.subplots(figsize=(10, 5))
+    sns.barplot(
+        data=weekday_avg_df,
+        x='weekday',
+        y='average_rating',
+        palette=weekday_avg_df['weekday'].map(color_map).tolist(),
+        ax=ax
+    )
+
+    ax.set_title("Average Rating by Day of the Week")
+    ax.set_ylabel("Average Rating")
+    ax.set_ylim(0, 5)
+
+# Add annotations
+    for bar in ax.patches:
+        height = bar.get_height()
+        ax.annotate(f"{height:.2f}",
+                    xy=(bar.get_x() + bar.get_width() / 2, height),
+                    xytext=(0, 3), textcoords="offset points",
+                    ha='center', va='bottom')
+
+    st.pyplot(fig)
+
+# ----------------------------------------------------------------------------------------------------
+# Top 5 Highest-Rated Stores Table
+# CHATGPT Prompt 7 : Write a code that shows a table of top 5 highest-rated stores from the data. calculate the average rating for each, sort them from highest to lowest.
+# [DA3]
+
+    st.header("Top 5 Highest-Rated Stores")
+
+    top5_stores = (
+        df.groupby('store_address')['rating']
+        .mean()
+        .sort_values(ascending=False)
+        .head(5)
+        .reset_index()
+        .rename(columns={'rating': 'Average Rating'})
+    )
+    st.dataframe(top5_stores)
+ # ----------------------------------------------------------------------------------------------------
+# Filter Ratings Section
+# CHATGPT Prompt 8: Create a function with a selectbox to choose between filtering by rating or by both rating and keyword. Add a rating slider, a keyword text input, and display the filtered results.
+    st.header("Choose Your Filter Method")
+# [PY1]
+    def filter_reviews(df, mode):
+        if mode == "Filter by Rating Only":
+            st.header("Filter by Rating Range")
+# [ST1] and [DA4]
+            rating_range = st.slider("Select Rating Range", 1, 5, (1, 5), step=1)
+            filtered_df = df[df['rating'].between(*rating_range)]
+            count = len(filtered_df)
+
+            if rating_range[0] == rating_range[1]:
+                st.write(f"🔎 Found {count} reviews with a {rating_range[0]}-star rating")
+            else:
+                st.write(f"🔎 Found {count} reviews with ratings between {rating_range[0]} and {rating_range[1]}")
+
+            st.dataframe(filtered_df)
+
+        else:  # "Filter by Rating and Keyword"
+            st.header("Filter by Rating Range and Keyword")
+            rating_range = st.slider("Select Rating Range", 1, 5, (1, 5), step=1)
+# [ST3]
+            keyword = st.text_input("Enter a keyword to search in review text:")
+            filtered_df = df[df['rating'].between(*rating_range)]
+            if keyword:
+# [DA5]
+                filtered_df = filtered_df[
+                    filtered_df['review'].str.contains(keyword, case=False, na=False)
+                ]
+
+            count = len(filtered_df)
+            range_text = (
+                f"{rating_range[0]}-star rating"
+                if rating_range[0] == rating_range[1]
+                else f"ratings between {rating_range[0]} and {rating_range[1]}"
+            )
+
+            if keyword:
+                st.write(f"🔎 Found {count} reviews with {range_text} containing **'{keyword}'**")
+            else:
+                st.write(f"🔎 Found {count} reviews with {range_text}")
+
+            st.dataframe(filtered_df)
+# [PY2]
+        return filtered_df, count
+
+# [ST2]
+    mode_option = st.selectbox(
+        "Choose a filter type:",
+        ["Filter by Rating Only", "Filter by Rating and Keyword"]
+    )
+    filtered_df, count = filter_reviews(df, mode_option)
+
+# -------------------------------------------------------------------------
+# Filtered MAP Locations Rating
+# [FOLIUM1] and [MAP]
+# CHATGPT Prompt 9: Write code to map McDonald’s locations using Folium, based on the filtered results from a rating slider and keyword input . Use color-coded circles for ratings and include a legend
+    st.subheader("Map of Filtered Locations by Rating")
+
+    if not filtered_df.empty:
+# aggregate to one point per store
+        loc_ratings = (
+            filtered_df
+            .groupby(['latitude', 'longitude', 'store_address'], as_index=False)['rating']
+            .mean()
+            .rename(columns={'rating':'avg_rating'})
+        )
+
+# build a color scale
+        filtered_cmap = cm.LinearColormap(
+            ['red', 'yellow', 'green'],
+            vmin=loc_ratings.avg_rating.min(),
+            vmax=loc_ratings.avg_rating.max(),
+            caption='Avg Rating'
+        )
+
+# center map on the filtered points
+        m = folium.Map(
+            location=[loc_ratings.latitude.mean(), loc_ratings.longitude.mean()],
+            zoom_start=5
+        )
+
+# add circle markers
+        for _, row in loc_ratings.iterrows():
+            color = filtered_cmap(row.avg_rating)
+            folium.CircleMarker(
+                location=[row.latitude, row.longitude],
+                radius=6,
+                popup=f"{row.store_address}<br>Avg Rating: {row.avg_rating:.2f}",
+                color=color, fill=True, fill_color=color, fill_opacity=0.7
+            ).add_to(m)
+
+# add the legend and render
+        filtered_cmap.add_to(m)
+        folium_static(m)
+    else:
+        st.warning("No location data available for that filter.")
+
+# ----------------------------------------------------------------------------------------------------
+# Rating Changes Over Time Graph
+# CHATGPT Prompt 10: Write Streamlit code to convert timestamps into dates, add a slider to select days back, and plot average rating trends over that period
+# [VIZ4]
+    st.header("Analyze Average Rating Changes Over Time")
+    def parse_review_time(t):
+        m = re.match(r"(\d+)\s(\w+)\sago", str(t))
+        if not m: return None
+        n,u = int(m.group(1)), m.group(2)
+        now = datetime.datetime.now()
+        if 'day' in u:   return now - datetime.timedelta(days=n)
+        if 'month' in u: return now - datetime.timedelta(days=n*30)
+        if 'year' in u:  return now - datetime.timedelta(days=n*365)
+    df['parsed_date'] = df['review_time'].apply(parse_review_time)
+    df.dropna(subset=['parsed_date'], inplace=True)
+
+    num_days = st.slider("Select days back to analyze:",1,365,30)
+    recent = df[df['parsed_date'] >= datetime.datetime.now() - datetime.timedelta(days=num_days)]
+    if not recent.empty:
+        by_day = recent.groupby(recent['parsed_date'].dt.date)['rating'].mean()
+        fig2, ax2 = plt.subplots(figsize=(10,5))
+        ax2.plot(by_day.index, by_day.values, marker='o')
+        ax2.set_xlabel('Date')
+        ax2.set_ylabel('Avg Rating')
+        ax2.set_title(f'Avg Rating Over Last {num_days} Days')
+        ax2.grid(True)
+        plt.xticks(rotation=45)
+        st.pyplot(fig2)
+    else:
+        st.warning("No reviews for selected timeframe.")
+
+# ----------------------------------------------------------------------------------------------------
+# ZIP Code Map Section
+# [FOLIUM2] [MAP]
+# CHATGPT Prompt 11: Write Streamlit code to let users pick a ZIP code and show a Folium map of stores in that area, color-coded by average rating
+    st.header("Zip Code Map Locations")
+    df['state'] = df['store_address'].apply(
+        lambda x: x.split(', ')[-2] if isinstance(x, str) and ', ' in x else 'Unknown'
+    )
+    states = sorted(df['state'].unique())
+    selected_state = st.selectbox("Select a zip code to map:", states)
+    state_df = df[df['state'] == selected_state]
+
+    if not state_df.empty:
+        state_loc = (
+            state_df.groupby(['latitude','longitude','store_address'], as_index=False)['rating']
+                    .mean().rename(columns={'rating':'avg_rating'})
+        )
+        state_cmap = cm.LinearColormap(
+            ['red','yellow','green'],
+            vmin=state_loc.avg_rating.min(),
+            vmax=state_loc.avg_rating.max(),
+            caption='Avg Rating'
+        )
+        m3 = folium.Map(
+            location=[state_loc.latitude.mean(), state_loc.longitude.mean()],
+            zoom_start=6
+        )
+        for _, row in state_loc.iterrows():
+            color = state_cmap(row.avg_rating)
+            folium.CircleMarker(
+                location=[row.latitude, row.longitude],
+                radius=6,
+                popup=f"{row.store_address}<br>Avg Rating: {row.avg_rating:.2f}",
+                color=color, fill=True, fill_color=color, fill_opacity=0.7
+            ).add_to(m3)
+        state_cmap.add_to(m3)
+        st.subheader(f"Map of {selected_state} Locations")
+        folium_static(m3)
+    else:
+        st.warning(f"No data available for {selected_state}.")
+
+# ----------------------------------------------------------------------------------------------------
+# Review Count by Year Histogram
+# CHATGPT Prompt 12 (Modified): Using seaborn, can you write Streamlit code that creates a histogram of the number of reviews per year using their timestamps
+# [SEA1]
+
+    st.header("Number of Reviews by Year")
+
+    # Make sure your 'parsed_date' column is datetime
+    df['parsed_date'] = pd.to_datetime(df['parsed_date'], errors='coerce')
+
+    # Create a new column for the year
+    df['year'] = df['parsed_date'].dt.year
+
+    # Create the plot
+    plt.figure(figsize=(10, 6))
+    ax = sns.histplot(data=df, x='year', bins=len(df['year'].unique()), discrete=True)
+
+    plt.xlabel("Year")
+    plt.ylabel("Number of Reviews")
+    plt.title("Review Count by Year")
+    plt.grid(True)
+
+    # Add numbers on top of each bar
+    for p in ax.patches:
+        height = p.get_height()
+        if height > 0:  # only annotate bars with height > 0
+            ax.annotate(f'{int(height)}',
+                        (p.get_x() + p.get_width() / 2, height),
+                        ha='center', va='bottom', fontsize=9)
+
+    st.pyplot(plt.gcf())
